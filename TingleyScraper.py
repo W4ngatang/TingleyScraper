@@ -67,4 +67,3 @@ if __name__ == '__main__':
 
     for target in toScrape:
         result = scrapeThread(target)
-
