@@ -5,16 +5,22 @@ sys.setdefaultencoding("utf-8")
 
 from bs4 import BeautifulSoup
 import urllib2
+import httplib
+from urlparse import urlparse
+
 import csv
 import re
+from time import sleep
 
-searchTerm = '美国' 
-outputFile = 'test4.csv'
-#base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
-base_url = "http://search.tianya.cn/bbs?q=" + searchTerm + "&pn="
+#searchTerm = '美国' 
+outputFile = 'test6.csv'
+logFile = 'test.log'
+base_url = "http://search.tianya.cn/bbs?q="# + searchTerm + "&pn="
 threadBase = 'http://bbs.tianya.cn'
+delay = 1
 #searchBase = 'http://search.tianya.cn/bbs?q='
-#iterator = "&pn="
+iterator = "&pn="
+#base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
 
 def scrapeSearch(url):
 
@@ -54,11 +60,39 @@ def scrapeThread(url, writer):
     if nextPage != []:
         scrapeThread(threadBase + nextPage[0].get('href'), writer)
 
+def checkUrl(url):
+    p = urlparse(url)
+    conn = httplib.HTTPConnection(p.netloc)
+    conn.request('HEAD', p.path)
+    resp = conn.getresponse()
+    return resp.status < 400
+
 
 if __name__ == '__main__':
 
+    # load the desired search term
+    if len(sys.argv) != 2:
+        print "Select search term - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
+        sys.exit()
+
+    param = sys.argv[1]
+    if param == '1':
+        searchTerm = '美国'
+    elif param == '2':
+        searchTerm = '美利坚'
+    elif param == '3':
+        searchTerm = '山姆大叔'
+    else:
+        print "Options - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
+        sys.exit()
+
+    base_url += base_url + searchTerm + iterator
+
+
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
+    logger = csv.writer(open(logFile, 'wb'), delimiter = '|')
+    logger.writerow(('Broken links'))
 
     # go through all the next pages buttons, find the one with the largest value
     # which should be the last page
@@ -69,17 +103,25 @@ if __name__ == '__main__':
 
     # find out how many pages of search result pages there are
     for result in soup.find_all(href=re.compile("javascript")):
+        # iterate through all the links with 'javascript' and find the largest number
         if result.string != None:
             if result.string.isdigit():
                 num = int(result.string)
                 if num > sMax:
                     sMax = num
 
-    # build a list of threads to scrape
-    toScrape = []
+    # build a list of threads to scrape from one search result page
     for i in xrange(sMax):
-        toScrape.append(scrapeSearch(base_url + str(i + 1)))
+        print "Scraping search result page ", i
+        toScrape = scrapeSearch(base_url + str(i + 1))
 
-    # actually scrape the threads
-    for target in toScrape:
-        result = scrapeThread(target)
+        # actually scrape the threads
+        print "Scraping threads..."
+        for target in toScrape:
+            # check that the URL is valid
+            if checkUrl(target):
+                result = scrapeThread(target, writer)
+            else:
+                logger.writerow((target))
+
+        sleep(delay)
