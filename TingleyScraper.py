@@ -7,9 +7,11 @@ from bs4 import BeautifulSoup
 import urllib2
 import csv
 
-outputFile = 'test.csv'
+outputFile = 'test4.csv'
 #base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
 base_url = "http://search.tianya.cn/bbs?q=美国"
+threadBase = 'http://bbs.tianya.cn'
+searchBase = 'http://search.tianya.cn/bbs?q='
 iterator = "&pn="
 
 # TODO: find the next page within the search results (maybe fixed to 75 pages max?)
@@ -27,7 +29,7 @@ def scrapeSearch(url):
 
     return links
 
-def scrapeThread(url):
+def scrapeThread(url, writer):
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
    
@@ -44,21 +46,18 @@ def scrapeThread(url):
             for child in post.children:
                 contents = child.encode('utf-8')
                 content += contents.replace("<br/>", "").strip()
-#            writer.writerow((title, url, date, time, content))
-            print title,",",url,",",date,",",time,",",content
-            print '\n'
+            writer.writerow((title, url, date, time, content))
 
     # Get the next thread page if there is one
-    nextPage = soup.find_all(class_="js-keyboard-next"):
-    if nextPage != None:
-        scrapeThread(nextPage.get('href'))
+    nextPage = soup.find_all(class_="js-keyboard-next")
+    if nextPage != []:
+        scrapeThread(threadBase + nextPage[0].get('href'), writer)
 
 
 if __name__ == '__main__':
 
-# TODO: write to csv, instead of just using print statements as I am currently
-#    writer = csv.writer(open(outputFile, 'wb'), delimiter = ',')
-#    writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
+    writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
 
     # go through all the next pages buttons, find the one with the largest value
     # which should be the last page
