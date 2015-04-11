@@ -12,7 +12,9 @@ outputFile = 'test.csv'
 base_url = "http://search.tianya.cn/bbs?q=美国"
 iterator = "&pn="
 
+# TODO: find the next page within the search results (maybe fixed to 75 pages max?)
 def scrapeSearch(url):
+
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
 
@@ -54,6 +56,7 @@ def scrapeThread(url):
 
 if __name__ == '__main__':
 
+# TODO: write to csv, instead of just using print statements as I am currently
 #    writer = csv.writer(open(outputFile, 'wb'), delimiter = ',')
 #    writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
 
