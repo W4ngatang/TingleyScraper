@@ -6,11 +6,13 @@ sys.setdefaultencoding("utf-8")
 from bs4 import BeautifulSoup
 import urllib2
 import csv
+import re
 
 outputFile = 'test3.csv'
 #base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
 base_url = "http://bbs.tianya.cn/post-worldlook-1438884-1.shtml"
 base = "http://bbs.tianya.cn"
+searchBase = 'http://search.tianya.cn/bbs?q=美国&pn=2'
 #base_url = "http://search.tianya.cn/bbs?q=美国"
 iterator = "&pn="
 
@@ -40,7 +42,19 @@ if __name__ == '__main__':
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
 
-    scrapeThread(base_url, writer)
+    page = urllib2.urlopen(searchBase)
+    soup = BeautifulSoup(page)
+
+    sMax = 0
+
+    for post in soup.find_all(href=re.compile("javascript")):
+        if post.string != None:
+            if post.string.isdigit():
+                num = int(post.string)
+                if num > sMax:
+                    sMax = num
+    print sMax
+#    scrapeThread(base_url, writer)
 
     '''
     post = urllib2.urlopen(base_url)
