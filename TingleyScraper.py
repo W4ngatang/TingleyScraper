@@ -13,7 +13,7 @@ import re
 from time import sleep
 
 #searchTerm = '美国' 
-outputFile = 'test6.csv'
+outputFile = 'test.csv'
 logFile = 'test.log'
 base_url = "http://search.tianya.cn/bbs?q="# + searchTerm + "&pn="
 threadBase = 'http://bbs.tianya.cn'
@@ -28,20 +28,25 @@ def scrapeSearch(url):
     soup = BeautifulSoup(page)
 
     links = []
+    titles = []
 
     for link in soup.find_all('h3'):
         for child in link.children:
             links.append(child.get('href'))
+            title = ''
+            for ele in child.contents:
+                title += str(ele)
+            titles.append(title.replace("<span class=\"kwcolor\">", "").replace("</span>",""))
 #            print child.get('href')
 
-    return links
+    return links, titles
 
-def scrapeThread(url, writer):
+def scrapeThread(url, writer, title):
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
    
     # Get the title
-    title = soup.find_all(class_='s_title')[0].string
+    #title = soup.find_all(class_='s_title')[0].string
    
     # Get the contents of the posts   
     for post in soup.find_all(True, {'class':['bbs-content', 'atl-info']}):
@@ -112,16 +117,16 @@ if __name__ == '__main__':
 
     # build a list of threads to scrape from one search result page
     for i in xrange(sMax):
-        print "Scraping search result page ", i
-        toScrape = scrapeSearch(base_url + str(i + 1))
+        print "Scraping search result page ", i+1
+        toScrape, titles = scrapeSearch(base_url + str(i + 1))
 
         # actually scrape the threads
         print "Scraping threads..."
-        for target in toScrape:
+        for j in xrange(len(toScrape)):
             # check that the URL is valid
-            if checkUrl(target):
-                result = scrapeThread(target, writer)
+            if checkUrl(toScrape[j]):
+                result = scrapeThread(toScrape[j], writer,titles[j])
             else:
-                logger.writerow((target))
+                logger.writerow((toScrape[j]))
 
         sleep(delay)
