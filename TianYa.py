@@ -7,20 +7,14 @@ from bs4 import BeautifulSoup
 import urllib2
 import httplib
 from urlparse import urlparse
-
 import csv
 import re
 from time import sleep
 
-#searchTerm = '美国' 
-outputFile = 'Uncle2.csv'
-logFile = 'Uncle.log'
-base_url = "http://search.tianya.cn/bbs?q="# + searchTerm + "&pn="
+base_url = "http://search.tianya.cn/bbs?q="
 threadBase = 'http://bbs.tianya.cn'
 delay = 1
-#searchBase = 'http://search.tianya.cn/bbs?q='
 iterator = "&pn="
-#base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
 
 def scrapeSearch(url):
 
@@ -37,7 +31,6 @@ def scrapeSearch(url):
             for ele in child.contents:
                 title += str(ele)
             titles.append(title.replace("<span class=\"kwcolor\">", "").replace("</span>",""))
-#            print child.get('href')
 
     return links, titles
 
@@ -45,15 +38,12 @@ def scrapeThread(url, writer, title):
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
    
-    # Get the title
-    #title = soup.find_all(class_='s_title')[0].string
-   
     # Get the contents of the posts   
     for post in soup.find_all(True, {'class':['bbs-content', 'atl-info']}):
         content = ''
         if 'atl-info' in post['class']:
-            time = post.contents[3].string[3:13]
-            date = post.contents[3].string[14:]
+            date = post.contents[3].string[3:13]
+            time = post.contents[3].string[14:]
         elif 'bbs-content' in post['class']:
             for child in post.children:
                 contents = child.encode('utf-8')
@@ -65,6 +55,7 @@ def scrapeThread(url, writer, title):
     if nextPage != []:
         scrapeThread(threadBase + nextPage[0].get('href'), writer, title)
 
+# Make sure URL is valid so it won't throw an error
 def checkUrl(url):
     p = urlparse(url)
     conn = httplib.HTTPConnection(p.netloc)
@@ -76,8 +67,9 @@ def checkUrl(url):
 if __name__ == '__main__':
 
     # load the desired search term
-    if len(sys.argv) != 2:
-        print "Select search term - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
+    if len(sys.argv) != 4:
+        print "Usage: TianYa.py searchParam outputFile logFile"
+#        print "Select search term - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
 
     param = sys.argv[1]
@@ -88,11 +80,12 @@ if __name__ == '__main__':
     elif param == '3':
         searchTerm = '山姆大叔'
     else:
-        print "Options - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
+        print "Parameter Values - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
-
     base_url += base_url + searchTerm + iterator
 
+    outputFile = sys.argv[2]
+    logFile = sys.argv[3]
 
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))

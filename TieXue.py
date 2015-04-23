@@ -7,20 +7,16 @@ from bs4 import BeautifulSoup
 import urllib2
 import httplib
 from urlparse import urlparse
-
 import csv
 import re
 from time import sleep
 
-#searchTerm = '美国' 
-outputFile = 'Uncle2.csv'
-logFile = 'Uncle.log'
-base_url = "http://search.tianya.cn/bbs?q="# + searchTerm + "&pn="
+base_url = 'http://bbs.tiexue.net/bbs33-0-'
 threadBase = 'http://bbs.tianya.cn'
+iterator = '.html'
 delay = 1
-#searchBase = 'http://search.tianya.cn/bbs?q='
-iterator = "&pn="
-#base_url = "http://bbs.tianya.cn/post-worldlook-1432690-1.shtml"
+
+nPages = 50 # cheating a bit, but appears like there's only 50 pages of results...
 
 def scrapeSearch(url):
 
@@ -30,14 +26,10 @@ def scrapeSearch(url):
     links = []
     titles = []
 
-    for link in soup.find_all('h3'):
-        for child in link.children:
-            links.append(child.get('href'))
-            title = ''
-            for ele in child.contents:
-                title += str(ele)
-            titles.append(title.replace("<span class=\"kwcolor\">", "").replace("</span>",""))
-#            print child.get('href')
+    for link in soup.find_all(class_='listTitle'):
+        if worth(link.get('title')):
+            links.append(link.get('href'))
+            titles.append(link.get('title'))
 
     return links, titles
 
@@ -45,20 +37,23 @@ def scrapeThread(url, writer, title):
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
    
-    # Get the title
-    #title = soup.find_all(class_='s_title')[0].string
-   
     # Get the contents of the posts   
-    for post in soup.find_all(True, {'class':['bbs-content', 'atl-info']}):
+    for post in soup.find_all(True, {'class':['js_box', 'bbsp2', 'date']}):
         content = ''
-        if 'atl-info' in post['class']:
-            time = post.contents[3].string[3:13]
-            date = post.contents[3].string[14:]
-        elif 'bbs-content' in post['class']:
+        # first post on page
+        if 'js_box' in post['class']:
+            for child in post.children:
+                print "Print: ", child
+        # subsequent posts
+        elif 'bbsp2' in post['class']:
             for child in post.children:
                 contents = child.encode('utf-8')
                 content += contents.replace("<br/>", "").strip()
             writer.writerow((title, url, date, time, content))
+        # get post date, time
+        elif 'date' in post['class']:
+            print post
+
 
     # Get the next thread page if there is one
     nextPage = soup.find_all(class_="js-keyboard-next")
@@ -72,14 +67,19 @@ def checkUrl(url):
     resp = conn.getresponse()
     return resp.status < 400
 
+def worth(title):
+    return '美国' in title or '美利坚' in title or '山姆大叔' in title
 
 if __name__ == '__main__':
 
-    # load the desired search term
-    if len(sys.argv) != 2:
-        print "Select search term - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
+    # Throw usage if incorrect
+    if len(sys.argv) != 3:
+        print "Usage: TieXue.py outputFile logFile"
+        #print "Select search parameter - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
 
+    '''
+    # Load correct search term
     param = sys.argv[1]
     if param == '1':
         searchTerm = '美国'
@@ -90,15 +90,17 @@ if __name__ == '__main__':
     else:
         print "Options - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
+    '''
 
-    base_url += base_url + searchTerm + iterator
-
-
+    # Open output file for writing, and maybe log file
+    outputFile = sys.argv[1]
+    logFile = sys.argv[2]
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
     logger = csv.writer(open(logFile, 'wb'), delimiter = '|')
     logger.writerow(('Broken links'))
 
+    '''
     # go through all the next pages buttons, find the one with the largest value
     # which should be the last page
     sMax = 2
@@ -114,11 +116,12 @@ if __name__ == '__main__':
                 num = int(result.string)
                 if num > sMax:
                     sMax = num
+    '''
 
     # build a list of threads to scrape from one search result page
-    for i in xrange(sMax):
+    for i in xrange(nPages):
         print "Scraping search result page ", i+1
-        toScrape, titles = scrapeSearch(base_url + str(i + 1))
+        toScrape, titles = scrapeSearch(base_url + str(i + 1) + iterator)
 
         # actually scrape the threads
         print "Scraping threads..."
