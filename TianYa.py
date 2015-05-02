@@ -10,10 +10,12 @@ from urlparse import urlparse
 import csv
 import re
 from time import sleep
+from socket import error as SocketError
+import errno
 
 base_url = "http://search.tianya.cn/bbs?q="
 threadBase = 'http://bbs.tianya.cn'
-delay = 1
+delay = 10
 iterator = "&pn="
 
 def scrapeSearch(url):
@@ -23,19 +25,26 @@ def scrapeSearch(url):
 
     links = []
     titles = []
-
+    
+    results = soup.find('div', class_='searchListOne')
     for link in soup.find_all('h3'):
+        #print link.text
         for child in link.children:
             links.append(child.get('href'))
-            title = ''
-            for ele in child.contents:
-                title += str(ele)
-            titles.append(title.replace("<span class=\"kwcolor\">", "").replace("</span>",""))
+            titles.append(child.text)
+            #print 'Child:', child.text
+            #print 'Link:', child.get('href')
 
     return links, titles
 
 def scrapeThread(url, writer, title):
-    page = urllib2.urlopen(url)
+    try:
+        page = urllib2.urlopen(url)
+    except SocketError as e:
+        if e.errno != errno.ECONNRESET:
+            raise
+        print "Connection refused"
+        return
     soup = BeautifulSoup(page)
    
     # Get the contents of the posts   
@@ -46,21 +55,31 @@ def scrapeThread(url, writer, title):
             time = post.contents[3].string[14:]
         elif 'bbs-content' in post['class']:
             for child in post.children:
-                contents = child.encode('utf-8')
-                content += contents.replace("<br/>", "").strip()
+                if child.string != None and not child.string.isspace():
+                    content += unicode(child.string.encode('utf-8').strip())
             writer.writerow((title, url, date, time, content))
 
     # Get the next thread page if there is one
     nextPage = soup.find_all(class_="js-keyboard-next")
     if nextPage != []:
+        sleep(delay)
+        print "Next page..."
         scrapeThread(threadBase + nextPage[0].get('href'), writer, title)
 
 # Make sure URL is valid so it won't throw an error
 def checkUrl(url):
     p = urlparse(url)
-    conn = httplib.HTTPConnection(p.netloc)
-    conn.request('HEAD', p.path)
+    try:
+        conn = httplib.HTTPConnection(p.netloc)
+        conn.request('HEAD', p.path)
+    except SocketError as e:
+        if e.errno != errno.ECONNRESET:
+            raise
+        print "Connection refused"
+        return False
+#    conn.request('HEAD', p.path)
     resp = conn.getresponse()
+    print "Status: ", resp.status
     return resp.status < 400
 
 
@@ -69,7 +88,6 @@ if __name__ == '__main__':
     # load the desired search term
     if len(sys.argv) != 4:
         print "Usage: TianYa.py searchParam outputFile logFile"
-#        print "Select search term - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
 
     param = sys.argv[1]
@@ -117,9 +135,10 @@ if __name__ == '__main__':
         print "Scraping threads..."
         for j in xrange(len(toScrape)):
             # check that the URL is valid
+            print "Scraping thread: ", toScrape[j]
+#            scrapeThread(toScrape[j], writer, titles[j])
             if checkUrl(toScrape[j]):
-                result = scrapeThread(toScrape[j], writer,titles[j])
+                scrapeThread(toScrape[j], writer,titles[j])
             else:
                 logger.writerow((toScrape[j]))
-
-        sleep(delay)
+            sleep(delay)

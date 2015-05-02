@@ -3,13 +3,16 @@ import sys
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
-from bs4 import BeautifulSoup
+from bs4 import BeautifulSoup, diagnose
 import urllib2
 import httplib
 from urlparse import urlparse
 import csv
 import re
 from time import sleep
+import lxml.html
+import pdb
+import chardet
 
 base_url = 'http://bbs.tiexue.net/bbs33-0-'
 threadBase = 'http://bbs.tianya.cn'
@@ -34,25 +37,42 @@ def scrapeSearch(url):
     return links, titles
 
 def scrapeThread(url, writer, title):
-    page = urllib2.urlopen(url)
-    soup = BeautifulSoup(page)
+    page = urllib2.urlopen(url).read()
+    soup = BeautifulSoup(page.decode('gb2312', 'ignore'), 'html5lib')
+    pdb.set_trace()
    
+#    raw_string = lxml.html.parse(page)
+#    print dir(raw_string)
+#    print raw_string.getroot()
+#    for item in raw_html:
+#        print item.text_content()
+
+    print "About to scrape page: ", url
+    print soup.encode('windows-1252')
     # Get the contents of the posts   
-    for post in soup.find_all(True, {'class':['js_box', 'bbsp2', 'date']}):
+    for post in soup.find_all():#True, {'class':['js_box', 'bbsp2', 'date']}):
+        pdb.set_trace()
+        print 'Found one: ', post
         content = ''
         # first post on page
         if 'js_box' in post['class']:
+            print 'found js_box'
             for child in post.children:
-                print "Print: ", child
+                if child['class'] == 'bbsp':
+                    print child.string
         # subsequent posts
         elif 'bbsp2' in post['class']:
+            print 'found bbsp2'
             for child in post.children:
-                contents = child.encode('utf-8')
-                content += contents.replace("<br/>", "").strip()
-            writer.writerow((title, url, date, time, content))
+                if child['class'] == 'bbsp':
+                    contents = child.encode('utf-8')
+                    #content += contents.replace("<br/>", "").strip()
+                    print child.encode('utf-8')
+            #writer.writerow((title, url, date, time, content))
         # get post date, time
         elif 'date' in post['class']:
-            print post
+            print post.string[0:9]
+            print post.string[10:]
 
 
     # Get the next thread page if there is one
