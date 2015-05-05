@@ -10,17 +10,24 @@ from urlparse import urlparse
 import csv
 import re
 from time import sleep
-from socket import error as SocketError
+import socket #import error as SocketError
 import errno
+from random import randint
 
 base_url = "http://search.tianya.cn/bbs?q="
+searchUrl = 'http://search.tianya.cn/bbs?q=美国+美利坚+山姆大叔&pn='
 threadBase = 'http://bbs.tianya.cn'
-delay = 10
-iterator = "&pn="
+maxDelay = 10
+minDelay = 1
+delta = 10
+iterator = '&pn='
 
 def scrapeSearch(url):
 
-    page = urllib2.urlopen(url)
+    try:
+        page = urllib2.urlopen(url)
+    except httplib.BadStatusLine as e:
+        return [], []
     soup = BeautifulSoup(page)
 
     links = []
@@ -28,7 +35,6 @@ def scrapeSearch(url):
     
     results = soup.find('div', class_='searchListOne')
     for link in soup.find_all('h3'):
-        #print link.text
         for child in link.children:
             links.append(child.get('href'))
             titles.append(child.text)
@@ -37,15 +43,36 @@ def scrapeSearch(url):
 
     return links, titles
 
-def scrapeThread(url, writer, title):
+def scrapeThread(url, writer, logger, title, redo):
     try:
-        page = urllib2.urlopen(url)
-    except SocketError as e:
+        page = urllib2.urlopen(url, timeout=maxDelay)
+    except socket.timeout as e:
+        logger.writerow((url, "timeout", title))
+        redo.append((url, title))
+        print "timeout"
+        return redo
+    except socket.error as e:
         if e.errno != errno.ECONNRESET:
             raise
+        logger.writerow((url, "refused", title))
+        redo.append((url, title))
         print "Connection refused"
-        return
-    soup = BeautifulSoup(page)
+        return redo
+    except urllib2.URLError as e:
+        logger.writerow((url, "refused", title))
+        redo.append((url, title))
+        print "Connection refused"
+        return redo
+    print "connected"
+
+    try:
+        soup = BeautifulSoup(page)
+    except httplib.IncompleteRead as e:
+        print "Incomplete read"
+        logger.writerow((url, 'incomplete', title))
+        redo.append((url, title))
+        return redo
+    print "soupified"
    
     # Get the contents of the posts   
     for post in soup.find_all(True, {'class':['bbs-content', 'atl-info']}):
@@ -62,35 +89,42 @@ def scrapeThread(url, writer, title):
     # Get the next thread page if there is one
     nextPage = soup.find_all(class_="js-keyboard-next")
     if nextPage != []:
-        sleep(delay)
+        sleep(randint(minDelay,maxDelay))
         print "Next page..."
-        scrapeThread(threadBase + nextPage[0].get('href'), writer, title)
+        redo = scrapeThread(threadBase + nextPage[0].get('href'), writer, logger, title, redo)
+
+    return redo
 
 # Make sure URL is valid so it won't throw an error
-def checkUrl(url):
+def checkUrl(url, logger, title, redo):
     p = urlparse(url)
     try:
         conn = httplib.HTTPConnection(p.netloc)
         conn.request('HEAD', p.path)
-    except SocketError as e:
+        print 'Making request'
+        resp = conn.getresponse()
+    except socket.error as e:
         if e.errno != errno.ECONNRESET:
             raise
+        redo.append((url, title))
+        logger.writerow((url, "refused", title))
         print "Connection refused"
-        return False
-#    conn.request('HEAD', p.path)
-    resp = conn.getresponse()
+        return False, redo
     print "Status: ", resp.status
-    return resp.status < 400
+    if resp.status >= 400:
+        logger.writerow((url, "broken", title))
+    return resp.status < 400, redo
 
 
 if __name__ == '__main__':
 
     # load the desired search term
-    if len(sys.argv) != 4:
-        print "Usage: TianYa.py searchParam outputFile logFile"
+    if len(sys.argv) != 5:
+        print "Usage: TianYa.py outputFile logFile searchTerm startPage"
         sys.exit()
 
-    param = sys.argv[1]
+    
+    param = sys.argv[3]
     if param == '1':
         searchTerm = '美国'
     elif param == '2':
@@ -101,21 +135,27 @@ if __name__ == '__main__':
         print "Parameter Values - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
     base_url += base_url + searchTerm + iterator
+    
 
-    outputFile = sys.argv[2]
-    logFile = sys.argv[3]
+    outputFile = sys.argv[1]
+    logFile = sys.argv[2]
+    start = sys.argv[4]
+#    baseUrl = searchUrl + start
 
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
-    logger = csv.writer(open(logFile, 'wb'), delimiter = '|')
-    logger.writerow(('Broken links'))
+    logger = csv.writer(open(logFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
+    logger.writerow(('URL', 'Error'))
 
     # go through all the next pages buttons, find the one with the largest value
     # which should be the last page
     sMax = 2
 
-    page = urllib2.urlopen(base_url + '1')
+#    page = urllib2.urlopen(searchUrl + start)
+    page = urllib2.urlopen(base_url + start)
     soup = BeautifulSoup(page)
+
+    redos = []
 
     # find out how many pages of search result pages there are
     for result in soup.find_all(href=re.compile("javascript")):
@@ -127,9 +167,13 @@ if __name__ == '__main__':
                     sMax = num
 
     # build a list of threads to scrape from one search result page
-    for i in xrange(sMax):
+    for i in range(int(start),sMax):
         print "Scraping search result page ", i+1
-        toScrape, titles = scrapeSearch(base_url + str(i + 1))
+        toScrape = []
+        while toScrape == []:
+            #toScrape, titles = scrapeSearch(searchUrl + str(i + 1))
+            toScrape, titles = scrapeSearch(base_url + str(i + 1))
+            sleep(randint(minDelay + delta, maxDelay + delta))
 
         # actually scrape the threads
         print "Scraping threads..."
@@ -137,8 +181,16 @@ if __name__ == '__main__':
             # check that the URL is valid
             print "Scraping thread: ", toScrape[j]
 #            scrapeThread(toScrape[j], writer, titles[j])
-            if checkUrl(toScrape[j]):
-                scrapeThread(toScrape[j], writer,titles[j])
-            else:
-                logger.writerow((toScrape[j]))
-            sleep(delay)
+            check, redos = checkUrl(toScrape[j], logger, titles[j], redos)
+            if check:
+                print 'Checked URL'
+                redos = scrapeThread(toScrape[j], writer,logger, titles[j], redos)
+            sleep(randint(minDelay, maxDelay))
+        sleep(randint(minDelay + delta, maxDelay + delta))
+
+    # redo whatever missed in first pass through
+    print "Redoing errors..."
+    while redos != []:
+        redo = redos.pop()
+        print 'Scraping thread: ', redo[0]
+        redos = scrapeThread(redo[0], writer, logger, redo[1], redos)
