@@ -3,8 +3,9 @@ import sys
 reload(sys)
 sys.setdefaultencoding("utf-8")
 
-from bs4 import BeautifulSoup, diagnose
+from bs4 import BeautifulSoup, diagnose, element
 import urllib2
+import requests
 import httplib
 from urlparse import urlparse
 import csv
@@ -15,14 +16,12 @@ import pdb
 import chardet
 
 base_url = 'http://bbs.tiexue.net/bbs33-0-'
-threadBase = 'http://bbs.tianya.cn'
 iterator = '.html'
 delay = 1
 
 nPages = 50 # cheating a bit, but appears like there's only 50 pages of results...
 
-def scrapeSearch(url):
-
+def scrapeSearch(url): 
     page = urllib2.urlopen(url)
     soup = BeautifulSoup(page)
 
@@ -32,47 +31,51 @@ def scrapeSearch(url):
     for link in soup.find_all(class_='listTitle'):
         if worth(link.get('title')):
             links.append(link.get('href'))
-            titles.append(link.get('title'))
+            longTitle = link.get('title').replace('\n','')
+            titleIdx = longTitle.find('发帖时间')
+            if titleIdx > 0:
+                titles.append(longTitle[:titleIdx])
 
     return links, titles
 
-def scrapeThread(url, writer, title):
-    page = urllib2.urlopen(url).read()
-    soup = BeautifulSoup(page.decode('gb2312', 'ignore'), 'html5lib')
-    pdb.set_trace()
-   
-#    raw_string = lxml.html.parse(page)
-#    print dir(raw_string)
-#    print raw_string.getroot()
-#    for item in raw_html:
-#        print item.text_content()
+# return true is not whitespace and is a tag (to filter out comments)
+def notSpace(child):
+    return hasattr(child, 'string') and child.string != None and not child.string.isspace() and type(child) == element.Tag
 
-    print "About to scrape page: ", url
-    print soup.encode('windows-1252')
+def scrapeThread(url, writer, title):
+    page = requests.get(url)
+    soup = BeautifulSoup(page.content, 'html5lib')
+    content = ''
+   
+    # TODO actually find the contents of each post in order
     # Get the contents of the posts   
-    for post in soup.find_all():#True, {'class':['js_box', 'bbsp2', 'date']}):
-        pdb.set_trace()
-        print 'Found one: ', post
-        content = ''
+    for post in soup.find_all(True, {'class':['js_box', 'bbsp2', 'date']}):
         # first post on page
         if 'js_box' in post['class']:
-            print 'found js_box'
+            print 'got one at ', url, 'post: ', post
             for child in post.children:
-                if child['class'] == 'bbsp':
-                    print child.string
+                if notSpace(child) and 'bbsp' in child['class']:
+                    content += child.string.strip()
         # subsequent posts
         elif 'bbsp2' in post['class']:
-            print 'found bbsp2'
             for child in post.children:
-                if child['class'] == 'bbsp':
-                    contents = child.encode('utf-8')
-                    #content += contents.replace("<br/>", "").strip()
-                    print child.encode('utf-8')
-            #writer.writerow((title, url, date, time, content))
+                # standard post
+                if notSpace(child) and 'bbsp' in child['class']:
+                    if content != '':
+                        content += ','
+                    content += child.string.replace('\n', '').strip()
+                # used when poster quotes others
+                if notSpace(child) and 'yinyong' in child['class']:
+                    if content != '':
+                        content += ','
+                    content += post.string.replace('\n', '').strip()
         # get post date, time
         elif 'date' in post['class']:
-            print post.string[0:9]
-            print post.string[10:]
+            payload = post.string.split()
+            date = payload[0].strip()
+            time = payload[1].strip()
+            writer.writerow((title,url,date,time,content))
+            content = ''
 
 
     # Get the next thread page if there is one
@@ -93,53 +96,23 @@ def worth(title):
 if __name__ == '__main__':
 
     # Throw usage if incorrect
-    if len(sys.argv) != 3:
-        print "Usage: TieXue.py outputFile logFile"
+    if len(sys.argv) != 4:
+        print "Usage: TieXue.py outputFile logFile startPage"
         #print "Select search parameter - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
-
-    '''
-    # Load correct search term
-    param = sys.argv[1]
-    if param == '1':
-        searchTerm = '美国'
-    elif param == '2':
-        searchTerm = '美利坚'
-    elif param == '3':
-        searchTerm = '山姆大叔'
-    else:
-        print "Options - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
-        sys.exit()
-    '''
 
     # Open output file for writing, and maybe log file
     outputFile = sys.argv[1]
     logFile = sys.argv[2]
+    startPage = int(sys.argv[3])
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
     logger = csv.writer(open(logFile, 'wb'), delimiter = '|')
     logger.writerow(('Broken links'))
 
-    '''
-    # go through all the next pages buttons, find the one with the largest value
-    # which should be the last page
-    sMax = 2
-
-    page = urllib2.urlopen(base_url + '1')
-    soup = BeautifulSoup(page)
-
-    # find out how many pages of search result pages there are
-    for result in soup.find_all(href=re.compile("javascript")):
-        # iterate through all the links with 'javascript' and find the largest number
-        if result.string != None:
-            if result.string.isdigit():
-                num = int(result.string)
-                if num > sMax:
-                    sMax = num
-    '''
 
     # build a list of threads to scrape from one search result page
-    for i in xrange(nPages):
+    for i in xrange(startPage, nPages):
         print "Scraping search result page ", i+1
         toScrape, titles = scrapeSearch(base_url + str(i + 1) + iterator)
 
