@@ -14,13 +14,13 @@ import socket #import error as SocketError
 import errno
 from random import randint
 
-base_url = "http://search.tianya.cn/bbs?q="
-searchUrl = 'http://search.tianya.cn/bbs?q=美国+美利坚+山姆大叔&pn='
-threadBase = 'http://bbs.tianya.cn'
+baseUrl = "http://search.tianya.cn/bbs?q="
+searchBase = 'http://tieba.baidu.com/f/search/res?isnew=1&kw=%C3%C0%B9%FA&qw='
+iterator = '&rn=10&un=&only_thread=0&sm=1&sd=&ed=&ie=gbk&pn='
+threadBase = 'tieba.baidu.com'
 maxDelay = 10
 minDelay = 1
 delta = 10
-iterator = '&pn='
 
 def scrapeSearch(url):
 
@@ -29,18 +29,19 @@ def scrapeSearch(url):
     except httplib.BadStatusLine as e:
         return [], []
     soup = BeautifulSoup(page)
+    print 'opened page', url
 
     links = []
     titles = []
     
-    results = soup.find('div', class_='searchListOne')
-    for link in soup.find_all('h3'):
-        for child in link.children:
-            links.append(child.get('href'))
-            titles.append(child.text)
-            #print 'Child:', child.text
-            #print 'Link:', child.get('href')
+    results = soup.find('div', class_='s_post_list')
+    # I found that even purple links are of class 'bluelink'?
+    for link in results.find_all(class_='bluelink'):
+        print 'found something'
+        links.append(threadBase + link.get('href'))
+        titles.append(link.text)
 
+    print 'exiting'
     return links, titles
 
 def scrapeThread(url, writer, logger, title, redo):
@@ -74,17 +75,19 @@ def scrapeThread(url, writer, logger, title, redo):
         return redo
     print "soupified"
    
+    content = ''
     # Get the contents of the posts   
-    for post in soup.find_all(True, {'class':['bbs-content', 'atl-info']}):
-        content = ''
-        if 'atl-info' in post['class']:
+    for post in soup.find_all(True, {'class':['d_post_content', 'p_tail']}):
+        if 'd_post_content' in post['class']:
+            print post.text
             date = post.contents[3].string[3:13]
             time = post.contents[3].string[14:]
-        elif 'bbs-content' in post['class']:
+            writer.writerow((title, url, date, time, content))
+            content = ''
+        elif 'p_tail' in post['class']:
             for child in post.children:
                 if child.string != None and not child.string.isspace():
                     content += unicode(child.string.encode('utf-8').strip())
-            writer.writerow((title, url, date, time, content))
 
     # Get the next thread page if there is one
     nextPage = soup.find_all(class_="js-keyboard-next")
@@ -126,7 +129,8 @@ if __name__ == '__main__':
     
     param = sys.argv[3]
     if param == '1':
-        searchTerm = '美国'
+        #searchTerm = '美国'
+        searchTerm = '%C3%C0%B9%FA'
     elif param == '2':
         searchTerm = '美利坚'
     elif param == '3':
@@ -134,13 +138,12 @@ if __name__ == '__main__':
     else:
         print "Parameter Values - 1: 美国 (America), 2: 美利坚 (United States of America), 3: 山姆大叔 (Uncle Sam)"
         sys.exit()
-    base_url += base_url + searchTerm + iterator
-    
+
+    start = sys.argv[4]
+    base_url = searchBase + searchTerm + iterator
 
     outputFile = sys.argv[1]
     logFile = sys.argv[2]
-    start = sys.argv[4]
-#    baseUrl = searchUrl + start
 
     writer = csv.writer(open(outputFile, 'wb'), delimiter = '|', quotechar='"', quoting=csv.QUOTE_MINIMAL)
     writer.writerow(('Title', 'URL', 'Date', 'Time', 'Content'))
@@ -149,22 +152,8 @@ if __name__ == '__main__':
 
     # go through all the next pages buttons, find the one with the largest value
     # which should be the last page
+    # cheating, looks like max of 76 pages of search results
     sMax = 2
-
-#    page = urllib2.urlopen(searchUrl + start)
-    page = urllib2.urlopen(base_url + start)
-    soup = BeautifulSoup(page)
-
-    redos = []
-
-    # find out how many pages of search result pages there are
-    for result in soup.find_all(href=re.compile("javascript")):
-        # iterate through all the links with 'javascript' and find the largest number
-        if result.string != None:
-            if result.string.isdigit():
-                num = int(result.string)
-                if num > sMax:
-                    sMax = num
 
     # build a list of threads to scrape from one search result page
     for i in range(int(start),sMax):
@@ -177,6 +166,7 @@ if __name__ == '__main__':
 
         # actually scrape the threads
         print "Scraping threads..."
+        print toScrape, titles
         for j in xrange(len(toScrape)):
             # check that the URL is valid
             print "Scraping thread: ", toScrape[j]
